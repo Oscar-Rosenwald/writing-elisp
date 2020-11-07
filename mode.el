@@ -37,9 +37,10 @@ If `write-characters' is already loaded, does nothing. If FORCE is non-nil, forc
   (let (files)
 	(dolist (file (directory-files (write-chapters-directory)) files)
 	  (if (string-match "^[0-9]+ - .*\\.org" file)
-		  (push (substring file
-						   (+ (string-match "-" file) 2) (- (length file) 4))
-				files)))))
+		  (push ;;(substring file
+				;;;		   (+ (string-match "-" file) 2) (- (length file) 4))
+		   file
+		   files)))))
 (defun write-load-characters ()
   (let (files)
 	(dolist (file (directory-files (write-characters-directory)) files)
