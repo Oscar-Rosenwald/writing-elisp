@@ -7,6 +7,17 @@
 (defcustom write-parts-directories-alist nil
   "Alist of parts (same as `write-parts') and their respective directories.")
 
+;; Others
+(defcustom write-picking-format nil
+  "The colour of the symbol (a-z,A-Z,1-9,...) used by `write-display-choices'. Has the form e.g. '(:foreground \"red\").")
+
+(defcustom write-number-of-picking-lines 40
+  "The number of lines `write-display-choices' will display below one another before setting another column")
+
+;; Outline
+(defcustom write-standard-file-extentions "\\(org\\)\\|\\(fountain\\)"
+  "The extentions for standard text files (no pictures)")
+
 ;; Side window configurations
 (defcustom  write-side-configs-alist nil
     "An alist of actions to performe when setting a configuration.
@@ -27,6 +38,8 @@ it will take effect.")
   "The directory with everything about the story in it.")
 (defcustom write-family-directory nil
   "Continuation of the mirectory leading to the family trees.")
+(defcustom write-outline-directory ""
+  "The directory where outline files reside. This directory is further divided by parts, but the part subdirectories are not included here. To get the right directory with the desired outline files for chapters, use the `write-outline-directory' function")
 
 ;; Completion lists
 
@@ -69,6 +82,8 @@ again.")
   "Controls whether to switch to the side window when a special
   config is called (like calling the map and places at once -> it
   would jumpt to spaces")
+(defcustom write-new-session t
+  "When starting a session for the first time, this is t. It allows advice of write-setup to only run some code in this case.")
 (defcustom write-places-heading-level 1
   "How deep to go in the headings when searching for a concrete
 place.")
@@ -126,4 +141,11 @@ Continuations of the main directory.")
 (defun write-family-directory ()
   "/"
   (concat (write-main-directory) write-family-directory))
-(defface writing-face '((((class color) (min-colors 88) (background dark)) :family "Times New Roman")) "The face for writing books.")
+(defun write-outline-directory-by-part ()
+  "/"
+  (concat (write-main-directory) write-outline-directory (write-part) "/"))
+(defun write-outline-directory ()
+  "/"
+  (concat (write-main-directory) write-outline-directory))
+
+(defface writing-face '((default :family "Times New Roman")) "The face for writing books.")

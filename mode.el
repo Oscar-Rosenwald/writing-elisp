@@ -1,4 +1,4 @@
-;; -*-eval: (hs-minor-mode 1); eval: (auto-complete-mode -1);-*-
+;; -*-eval: (hs-minor-mode 1); eval: (hs-hide-all); eval: (auto-complete-mode -1);-*-
 (require 'dash)
 (defun write-vv-p ()
   "Returns t if the current configuration is 'VV. Returns nil, if it is 'HV.
@@ -39,7 +39,7 @@ If `write-characters' is already loaded, does nothing. If FORCE is non-nil, forc
 	  (if (string-match "^[0-9]+ - .*\\.org" file)
 		  (push ;;(substring file
 				;;;		   (+ (string-match "-" file) 2) (- (length file) 4))
-		   file
+		   (substring file 0 (- (length file) 4))
 		   files)))))
 (defun write-load-characters ()
   (let (files)
@@ -73,29 +73,36 @@ This function only sets the `write-config'. It does not find files.
 That is the job of `write-set-config'.
 
 When NEW is non-nil, changes the current chapter or part in
-`write-current-chapter' and `write-current-part'."
+`write-current-chapter' and `write-current-part'.
+
+`write-before-new-hook' is run when when a new session is created. `write-after-setup-hook' is run every time, after this function."
   (interactive "P")
-  (setq write-current-chapter
-		(with-temp-buffer
-		  (insert-file-contents (expand-file-name "~/Documents/emacs/.write-current-chapter"))
-		  (buffer-string)))
-  (when (or (member "Down" (transient-args 'write-action))
-			(member "Switch" (transient-args 'write-action)))
-	(setq NEW t))
-  (when NEW
-	(let ((chapter-p (= (write-pick nil '(("c" "Chapter") ("p" "Part"))) 0)))
-	  (if chapter-p
-		  ;; Changing chapter
-		  (write-change-chapter)
-		;; Changing the part -> requires changing the chapter
-		;; TODO Will be done later.
-		(write-change-part))))
-  (unless write-config 						; When `write-config' wasn't set yet...
-	;; Opening files for the first time
-	;; Set `write-config' to the value of 'HV, blank.org
-	(setq write-config (list nil (list (write-blank) 0)))) ; `write-config' is a list of lists.
-  (define-key global-map (kbd "M-[") 'write-action)
-  (write-set-config))
+  (let ((start (if write-config t
+				 (y-or-n-p "Want to start a writing session?"))))
+	(when start
+	  (setq write-current-chapter
+			(with-temp-buffer
+			  (insert-file-contents (expand-file-name "~/Documents/emacs/.write-current-chapter"))
+			  (buffer-string)))
+	  (when (or (member "Down" (transient-args 'write-action))
+				(member "Switch" (transient-args 'write-action)))
+		(setq NEW t))
+	  (when NEW
+		(let ((chapter-p (= (write-pick nil '(("c" "Chapter") ("p" "Part"))) 0)))
+		  (if chapter-p
+			  ;; Changing chapter
+			  (write-change-chapter)
+			;; Changing the part -> requires changing the chapter
+			;; TODO Will be done later.
+			(write-change-part))))
+	  (unless write-config 						; When `write-config' hasn't been set yet...
+		;; Opening files for the first time
+		;; Set `write-config' to the value of 'HV, blank.org
+		(run-hooks 'write-when-new-hook)
+		(setq write-config (list nil (list (write-blank) 0)))) ; `write-config' is a list of lists.
+	  (define-key global-map (kbd "M-[") 'write-action)
+	  (write-set-config)))
+  (run-hooks 'write-after-setup-hook))
 
 (defun write-change-part ()
   "Changes the current part.
@@ -108,15 +115,13 @@ Sets `write-current-part' to nil, so it has to be set outside."
 		   write-parts nil t nil nil (write-part))))
   (write-change-chapter))
 (defun write-change-chapter ()
-  "Changes the current chapter. Only interested in the name, not the number.
-
-Sets `write-current-chapter' to nil, so it has to be set outside."
+  "Changes the current chapter. Only interested in the name, not the number."
   (let ((load (write-load-completions nil (write-part))))
 	(setq write-current-chapter
 		  (let ((completion-ignore-case t))
 			(completing-read
 			 (format "Change chapter to (%s): " (write-chapter))
-			 load nil 'confirm nil nil (write-chapter))))
+			 load nil 'confirm nil nil (write-chapter) t)))
 	(shell-command (format "echo -n \"%s\" > ~/Documents/emacs/.write-current-chapter"
 						   write-current-chapter))
 	(setq write-config (if write-config
@@ -130,14 +135,19 @@ Sets `write-current-chapter' to nil, so it has to be set outside."
 Does not set `write-current-main'. It must be set outside of this function."
   (let ((number (1+ (length (write-load-completions nil))))
 		file)
-	(setq file (concat (write-chapters-directory)
-					   (number-to-string number)
-					   " - " (write-chapter) ".org"))
+	(setq file (concat (number-to-string number) " - " (write-chapter) ".org"))
 	;; The current chapter has been changed by `write-change-chapter'.
-	;; `write-chapter' returns this new chapter now.
+	;; `write-chapter' function returns this new chapter now.
 	(find-file file)
 	(setq-local ispell-personal-dictionary write-spelling-dictionary)
 	(buffer-face-set "writing-face")
+	(setq write-current-chapter (concat (number-to-string number)
+  										" - "
+										(write-chapter)))
+	(shell-command (format "echo -n \"%s\" > ~/Documents/emacs/.write-current-chapter"
+						   ;; (concat (number-to-string number)
+						   ;; 		   " - "
+								   (write-chapter)))
 	(write-file file)))
 
 (defun write-set-config ()
@@ -157,12 +167,13 @@ that."
 	  (progn (find-file (car write-config))
 			 (setq-local ispell-personal-dictionary write-spelling-dictionary)
 			 (buffer-face-set "writing-face"))
-	(find-file (concat (write-chapters-directory) "* - " (write-chapter) ".org") t)
+	;; (find-file (concat (write-chapters-directory) "* - " (write-chapter) ".org") t)
+	(find-file (concat (write-chapters-directory) (write-chapter) ".org") t)
 	(setq-local ispell-personal-dictionary write-spelling-dictionary)
 	(buffer-face-set "writing-face")
 	(setq write-config (push
-					(buffer-file-name (current-buffer))
-					(cdr write-config))))
+						(buffer-file-name (current-buffer))
+						(cdr write-config))))
   (split-window-horizontally)
   (other-window 1)
   (find-file (car (nth 1 write-config)))
@@ -276,11 +287,13 @@ files withouth the leading directories."
 			 (string-match "\[^/\]+$" elem))
 			list)))))
 
-(defun write-headings-pick (FILE LEVEL)
+(defun write-headings-pick (FILE LEVEL &optional LEVEL-CHECK)
   "In the FILE, search for all headings of level LEVEL and offer
   them to be picked with `write-pick'.
 
-Returns the string (heading), which was chosen."
+Returns the string (heading), which was chosen.
+
+When optional LEVEL-CHECK is non-nil, it must be a function. This function is used to check the heading level, to see if the heading is going to be included in the offers to pick from. This function must be of type (function (level point)), where <function> is the name, and <level> is the result of `org-outline-level', and <point> is the point the heading is at. This is to be quite general."
   (find-file-noselect FILE)
   (set-buffer (get-file-buffer FILE))
   (beginning-of-buffer)
@@ -289,7 +302,9 @@ Returns the string (heading), which was chosen."
 	  (while (not (= (point) (buffer-end 1)))
 		(when (not (org-on-heading-p))	; This will only happen the first time.
 		  (outline-next-heading))
-		(when (<= (org-outline-level) LEVEL)
+		(when (if LEVEL-CHECK
+				  (funcall LEVEL-CHECK (org-outline-level) (point-at-bol))
+				(<= (org-outline-level) LEVEL))
 		  (setq subs (substring
 					  (buffer-substring-no-properties (point) (point-at-eol))
 					  (string-match "\[^ *\]" (buffer-substring-no-properties (point) (point-at-eol)))
@@ -328,7 +343,9 @@ The optional SWITCH means move to the new window if
 SPECIAL means we want to only use UP and SWITCH and find a
 complete path in EXTENSION. DELTA is the delta passed to
 `write-change-config' if it is given. If not, we look for a delta in
-the `write-side-configs-alist'."
+the `write-side-configs-alist'.
+
+Returns the name of the file we chose."
   (if SPECIAL
 	  (if UP
 		  (write-change-config
@@ -352,8 +369,10 @@ the `write-side-configs-alist'."
 		(find-file-noselect new-file)
 		(write-change-config 3 new-file)
 		(when (and SWITCH write-switch-to-side-when-special)
-		  (other-window 2))))))
-(defun write-find-file-choose (UP DIRECTORY &optional FILE DELTA)
+		  (other-window 2)))
+	  (setq EXTENSION new-file)))
+  EXTENSION)
+(defun write-find-file-choose (UP DIRECTORY &optional FILE DELTA LEVEL-CHECK)
   "Finds a file using `write-find-file' in the DIRECTORY (recursive).
   UP is passed to that as well.
 
@@ -361,7 +380,9 @@ If FILE is t, DIRECTORY is a full filename. DELTA only takes
 effect if FILE is t. It is the delta, which will be passed to
 `write-find-file' and then to `write-change-config'.
 
-Does not need an extention, as it must be an org file.
+LEVEL-CHECK is a function, which will be passed to `write-headings-pick'. See that for more detail.
+
+Does not need an extention, as it must be an org file or a fountain file (for outlining scenes).
 
 How deep into the haedings to go is controlled by
 `write-places-heading-level' and whether to finish on that heading
@@ -369,15 +390,21 @@ rather than in the editing window by
 `write-switch-to-side-when-special'."
   (if FILE
 	  (write-find-file UP DIRECTORY nil nil t DELTA)
-	(write-find-file UP "org" DIRECTORY))
+	(write-find-file UP write-standard-file-extentions DIRECTORY))
   (other-window 1)
   (unless UP
 	(other-window 1))
-  (re-search-forward (format
-					  "^\\*+ %s$"
-					  (write-headings-pick (buffer-file-name (current-buffer))
-									   write-places-heading-level))
-					 nil t)
+  (let ((heading-line
+		 (write-headings-pick (buffer-file-name (current-buffer))
+							  write-places-heading-level
+							  LEVEL-CHECK)))
+	(while (progn (re-search-forward (format
+									  "^\\** ?%s$"
+									  heading-line
+									  nil t))
+				  (not (outline-on-heading-p t)))
+	  ;; Just do it over and over
+	  ))
   (beginning-of-line)
   (outline-show-children (org-outline-level))
   (recenter-top-bottom 0)
@@ -477,6 +504,17 @@ If there are more chapters, asks with `write-pick'."
 	(setq UP t))
   (when (called-interactively-p 'interactive) (setq UP (not UP)))
   (write-find-file UP "[^/]\\{3\\}+" (write-family-directory) (member "Switch" (transient-args 'write-action))))
+(defun write-find-outline (UP &optional SWITCH)
+  "Find the outline file. Can be an org file or a fountain file. Offers all files in the `write-outline-directory', not just the ones in the current part directory (`write-outline-directory-by-part').
+
+Uses `write-find-file-choose'"
+  (interactive "P")
+  (when (member "Down" (transient-args 'write-action))
+	(setq UP t))
+  (when (member "Switch" (transient-args 'write-action))
+	(setq SWITCH t))
+  (when (called-interactively-p 'interactive) (setq UP (not UP)))
+  (write-find-file UP write-standard-file-extentions (concat (write-outline-directory) (write-part)) SWITCH))
   
 (defun write-find-other (UP)
   "Finds the \"other\" file and asks for a specific heading (only
@@ -523,6 +561,15 @@ heading in them."
 	(setq UP t))
   (when (called-interactively-p 'interactive) (setq UP (not UP)))
   (write-find-file-choose UP (write-characters-directory)))
+(defun write-find-concrete-outline (UP &optional SWITCH)
+  "Same as `write-find-outline', but offers a selection from the headlines as well."
+  (interactive "P")
+  (when (member "Down" (transient-args 'write-action))
+	(setq UP t))
+  (when (member "Switch" (transient-args 'write-action))
+	(setq SWITCH t))
+  (when (called-interactively-p 'interactive) (setq UP (not UP)))
+  (write-find-file-choose UP (concat (write-outline-directory) (write-part))))
 
 (defun write-find-couples ()
   "Find with `write-find-couple' two files in `write-side-configs-alist'."
@@ -557,6 +604,76 @@ heading in them."
 							   elem
 							 ""))
 						 write-side-configs-alist))))))
+
+(defvar write-outline--Chapter-level '(0 0)
+  "Holds a list with the point at beginning of line for the heading in the MASTER OUTLINE ORG FILE 'Chapters', and the point at the beginning of the next heading of the same level.")
+(defun write-outline-chapter-level-check (LEVEL POINT)
+  "Checks if a heading's number is greater than the heading 'Chapters'. If it is, and theit will return t, otherwise nil."
+  (and (> POINT (car write-outline--Chapter-level))
+	   (< POINT (cadr write-outline--Chapter-level))))
+  
+(defun write-outline-setup ()
+  "Finds the right scene in the outline for the current part (with `write-part' - MASTER OUTLINE ORG FILE MUST HAVE SAME NAME AS THE PART, AND BE IN THE SAME DIRECTORY) and the scene in the .fountain mode which is linked under the scene heading in the master outline org file. Displays both the master file and the fountain file in VV.
+
+It uses `write-outline-chapter-level-check' to view only the desired headings in the master outline org file."
+  (interactive)
+  (let ((master-file (write-find-file nil (concat (write-outline-directory) (write-part) "/" (write-part) ".org") nil nil t)))
+		;; (write-switch-to-side-when-special nil))
+	(set-buffer (get-file-buffer master-file))
+	(beginning-of-buffer)
+	(unless (re-search-forward "^\*+ Chapters$" nil t)
+	  (error "There is no 'Chapters' heading in the %s file" master-file))
+
+	;; We are now at '* Chapters'
+	(setq write-outline--Chapter-level
+		  (list (point-at-bol)
+				(if (= (point-at-bol)
+					   (progn (org-forward-heading-same-level 1)
+							  (point-at-bol)))
+					(buffer-end 1)
+				  (point-at-bol))
+				(org-outline-level)))
+	(write-find-file-choose nil (concat (write-outline-directory-by-part) (write-part) ".org") t 10 #'write-outline-chapter-level-check)
+	(org-show-entry)
+	(if (> (org-outline-level) (1+ (car (last write-outline--Chapter-level))))
+		;; The scene heading must be at least two headin leves greater than the
+		;; '* Chapters' heading:
+		;; * Chapters (1)
+		;; ** Chapter (2)
+		;; *** Scene (3)
+
+		;; We are looking at a scene - find the appropriate scene, linked in the subtree.
+		;; * Scene
+		;; :PROPERTIES:
+		;; ...
+		;; :END:
+		;; :Links:
+		;; [[scene][link to .fountain heading]]
+		;; :END:
+		(progn
+		  (re-search-forward ":Links:\n")
+		  (let ((linked-file (buffer-substring-no-properties
+							  (re-search-forward ":" (point-at-eol))
+							  (- (re-search-forward "::" (point-at-eol)) 2)))
+				(scene-heading (buffer-substring-no-properties
+								(point)
+								(1- (re-search-forward "\]" (point-at-eol))))))
+			;; ;; Fold character list
+			;; (re-search-forward ":END:")
+			;; (forward-line 1)
+			;; (org-cycle)					; Doesn't work all the time
+			
+			(write-find-file t (concat (write-outline-directory-by-part) linked-file) nil t t 9)
+			(beginning-of-buffer)
+			(re-search-forward scene-heading)
+			(recenter-top-bottom 0)
+
+			;; Put scene heading to top of buffer
+			(other-window 1)
+			(outline-previous-heading)
+			(recenter 0)
+			
+			(other-window 1))))))
 
 (defun write-find-weird (&optional SWITCH)
   "Finds any other file which is not included explicitly in the
@@ -657,12 +774,13 @@ have the same effect."
 and return the character read. Opens a new window on the bottom,
 which it then closes once the character has been chosen.
 
-'q' will stop the whole operation.
-
-SCROLLING DOES NOT WORK!!!"
+'q' will stop the whole operation."
   (let ((buf (get-buffer-create write-window))
-		(count (1+ (/ (length ARG) 20)))
-		char)
+		(count (1+ (/ (length ARG) write-number-of-picking-lines)))
+		char
+		max-str-lenth
+		(tabs)
+		(nth-element 0))
 	(unless (window-live-p write-window)
 	  (setq write--window
 			(display-buffer buf '(display-buffer-in-side-window (side . bottom)))))
@@ -676,38 +794,61 @@ SCROLLING DOES NOT WORK!!!"
 	  (setq mode-line-format 'line)
 	  (setq cursor-type nil)
 
+	  (setq max-str-lenth (- (/ (window-body-width) count) 5)) ; 3 for the space, 1 for the leading char, 1 for the separating space
+	  (print (window-body-width))
+	  (print count)
+	  (print max-str-lenth)
 	  ;; Show the options
-	  (dolist (elem ARG)
-		(insert (concat (propertize (format "%c" (car elem)) 'face '(:foreground "cyan"))
-						"   "
-						(cadr elem)))
-		(insert "\n"))
-	  (goto-char (point-min))
+	  (let ((tab-stop-list
+			(let ((prev-number 0))
+			  (dotimes (tab count tabs)
+				(setq tabs (append tabs (list (+ prev-number 3) (+ prev-number 3 (1+ max-str-lenth)))))
+				(setq prev-number (car (last tabs)))))))
+		(print tab-stop-list)
+		(dolist (elem ARG)
+		  (setq nth-element (1+ nth-element))
+		  (let ((str (cadr elem))
+				str-length)
+			(setq str-length (if (> (length str) max-str-lenth)
+								 max-str-lenth
+							   (length str)))
+			(when (= (% (- nth-element 1) write-number-of-picking-lines) 0)
+			  (beginning-of-buffer))
+			(end-of-line)
+			(when (> nth-element write-number-of-picking-lines)
+			  (move-to-tab-stop))
+			(insert (propertize (format "%c" (car elem)) 'face write-picking-format))
+			(move-to-tab-stop)
+			(insert (substring str 0 str-length))
+			(if (> nth-element write-number-of-picking-lines)
+				(forward-line 1)
+			  (insert "\n")))))
+		(goto-char (point-min))
 
-	  (let ((window-resize-pixelwise t)
-			(window-size-fixed nil))
-		(fit-window-to-buffer nil nil 1))
-	  (while (progn (setq char (read-char-choice
-						 "Press key: "
-						 (cons ?q
-							   (-reduce-r-from
-								(lambda (a b) (cons (car a) b))
-								nil ARG))))
-					(or (= char ?)
-						(= char ?q)
-						(= char ? )))
-		(print char)
-		(cond ((= char ?)
-			   (let ((other-window-scroll-buffer write-window))
-				 (scroll-other-window)))
-			  ((= char ? )
-			   (let ((other-window-scroll-buffer buf))
-				 (scroll-other-window-down)))
-			  (t ; Always ?q
-			   (write-display-choices-quit)
-			   (keyboard-quit))))
-	  (write-display-choices-quit))
-	char))
+		(let ((window-resize-pixelwise t)
+			  (window-size-fixed nil))
+		  (fit-window-to-buffer nil nil 1))
+		(while (progn (setq char (read-char-choice
+								  "Press key: "
+								  (cons ?q
+										(-reduce-r-from
+										 (lambda (a b) (cons (car a) b))
+										 nil ARG))))
+					  (or (= char ?)
+						  (= char ?q)
+						  (= char ? )))
+		  (print char)
+		  (cond ((= char ?)
+				 (let ((other-window-scroll-buffer write-window))
+				   (scroll-other-window)))
+				((= char ? )
+				 (let ((other-window-scroll-buffer buf))
+				   (scroll-other-window-down)))
+				(t ; Always ?q
+				 (write-display-choices-quit)
+				 (keyboard-quit))))
+		(write-display-choices-quit))
+	  char))
 
 (defun write-canopy (ARG &optional COUPLE)
   (unless (listp ARG)
@@ -755,6 +896,53 @@ SCROLLING DOES NOT WORK!!!"
 	(org-insert-todo-heading-respect-content)
 	(insert (concat term "\nPlace: [[file:" file "][" file-name "]]\nDescription: " STRING))))
 
+(defun write-forward-outline (arg)
+  "When outlining a scene in MASTER ORG OUTLINE FILE, the buffer may be narrowed to the subtree. This function moves forward to the next scene, notifying the user is this is the last scene of the chapter, and giving the option to go to the next scene anyway if it is.
+
+Argument ARG specifies how many headings to move by. It can move backwards. If the number of scenes in the chapter is larger than the argument, moves to the last scene in said chapter."
+  (interactive "p")
+  (when (not (string= "org-mode" major-mode))
+	(error "Not in MASTER ORG OUTLINE FILE"))
+  (let ((old-location (progn
+						(org-previous-visible-heading 1)
+						(point)))
+		(this-scene (buffer-substring (point-min)
+									  (point-max)))
+		(this-buffer (buffer-name))
+		(indirect-buffer-name "bla")
+		heading-level
+		new-heading)
+	(clone-indirect-buffer indirect-buffer-name nil t)
+	(set-buffer this-buffer)
+	(widen)
+	(when (= old-location
+			 (progn (org-forward-heading-same-level arg t)
+					(point)))
+	  (if (y-or-n-p (format
+					 "End of chapter. Go to scene in next chapter %s "
+					 (progn (org-next-visible-heading 1)
+							(org-entry-get nil "ITEM"))))
+		  (progn
+			(outline-show-branches)
+			(setq heading-level (outline-level))			
+			(org-next-visible-heading 1)
+			(when (= heading-level
+					 (outline-level))
+			  (org-previous-visible-heading 1)
+			  (setq new-heading (read-string "New heading: "))
+			  (org-insert-heading-respect-content t)
+			  (insert new-heading)
+			  (org-metaright)))
+			  ;; (error "There is no scene heading in the next chapter")))
+		(goto-char old-location)))
+
+	(org-narrow-to-subtree)
+	(outline-show-children)
+	(switch-to-buffer this-buffer)
+	(kill-buffer indirect-buffer-name)))
+
+(defalias 'wf 'write-forward-outline)
+
 (require 'transient)
 (define-transient-command write-action ()
   ["Prefix"
@@ -774,6 +962,12 @@ SCROLLING DOES NOT WORK!!!"
 	("w" "Find WEIRD" write-find-weird)]]
   
   ["Couples"
+   ["Outline"
+	;; E for events
+	("e" "Find OUTLINE" write-find-outline) 
+	("E" "Find concrete OUTLINE" write-find-concrete-outline)
+	("O" "Setup the outline environment" write-outline-setup)]
+
    ["Concrete"
 	("}" "Find concrete CHARACTER" write-find-concrete-character)
 	("P" "Find concrete PLACE" write-find-concrete-place)
@@ -790,5 +984,5 @@ SCROLLING DOES NOT WORK!!!"
    ("M-[" "Delete UPPER window" write-vv-to-hv-upper)
    ("M-]" "Delete LOWER window" write-vv-to-hv-lower)])
 
-(define-key global-map (kbd "M-[") 'write-setup)
+(defalias 'write 'write-setup)
 (define-key global-map (kbd "C-c w") 'write-save-term)

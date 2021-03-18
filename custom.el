@@ -46,16 +46,17 @@
 	  '("animals/"
 		"organisation/"
 		"places/layouts/"))
-(setq write-spelling-dictionary (expand-file-name "~/Documents/writing/Jelen Saga/stuff/.spelling.cs.pws"))
+(setq write-spelling-dictionary (expand-file-name "~/Documents/writing/Jelen Saga/stuff/.spelling.en.pws"))
 	  
-
+(setq write-picking-format '(:foreground "red"))
+(setq write-number-of-picking-lines 30)
 (setq write-map-extension "png")
 (setq write-switch-to-side-when-special t)
 (setq write-places-heading-level 2)
 
 (setq write-main-directory (expand-file-name "~/Documents/writing/Jelen Saga/"))
-(setq write-current-part "O králíčkovi a jelenovi")
-(setq write-current-chapter "Otázka rodiny")
+(setq write-current-part "Králíček ohnivák a lišky ryšky")
 (setq write-family-directory "characters/rodokmeny/")
 (setq write-timeline "organisation/timeline.org")
 (setq write-map-directory "places/map/")
+(setq write-outline-directory "outline/")
