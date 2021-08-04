@@ -47,6 +47,8 @@
 		"organisation/"
 		"places/layouts/"))
 (setq write-spelling-dictionary (expand-file-name "~/Documents/writing/Jelen Saga/stuff/.spelling.en.pws"))
+
+(setq write-always-insert-new-scene t)
 	  
 (setq write-picking-format '(:foreground "red"))
 (setq write-number-of-picking-lines 30)

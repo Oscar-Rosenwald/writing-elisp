@@ -1,5 +1,6 @@
 ;; -*-eval: (hs-minor-mode 1); eval: (hs-hide-all); eval: (auto-complete-mode -1);-*-
 (require 'dash)
+(require 'cl)
 (defun write-vv-p ()
   "Returns t if the current configuration is 'VV. Returns nil, if it is 'HV.
 
@@ -896,50 +897,172 @@ which it then closes once the character has been chosen.
 	(org-insert-todo-heading-respect-content)
 	(insert (concat term "\nPlace: [[file:" file "][" file-name "]]\nDescription: " STRING))))
 
-(defun write-forward-outline (arg)
-  "When outlining a scene in MASTER ORG OUTLINE FILE, the buffer may be narrowed to the subtree. This function moves forward to the next scene, notifying the user is this is the last scene of the chapter, and giving the option to go to the next scene anyway if it is.
+;; (defun write-forward-outline (arg)
+;;   "When outlining a scene in MASTER ORG OUTLINE FILE, the buffer may be narrowed to the subtree. This function moves forward to the next scene, notifying the user is this is the last scene of the chapter, and giving the option to go to the next scene anyway if it is.
 
-Argument ARG specifies how many headings to move by. It can move backwards. If the number of scenes in the chapter is larger than the argument, moves to the last scene in said chapter."
-  (interactive "p")
-  (when (not (string= "org-mode" major-mode))
+;; Argument ARG specifies how many headings to move by. It can move backwards. If the number of scenes in the chapter is larger than the argument, moves to the last scene in said chapter."
+;;   (interactive "p")
+;;   (when (or (not (string= "org-mode" major-mode))
+;; 			(not (buffer-narrowed-p)))
+;; 	(error "Not in MASTER ORG OUTLINE FILE or not narrowing"))
+;;   (let ((old-location (progn
+;; 						(org-previous-visible-heading 1)
+;; 						(point)))
+;; 		(this-scene (buffer-substring (point-min)
+;; 									  (point-max)))
+;; 		(this-buffer (buffer-name))
+;; 		(indirect-buffer-name "bla")
+;; 		heading-level
+;; 		new-heading)
+;; 	(clone-indirect-buffer indirect-buffer-name nil t)
+;; 	(set-buffer this-buffer)
+;; 	(widen)
+;; 	(when (= old-location
+;; 			 (progn (org-forward-heading-same-level arg t)
+;; 					(point)))
+;; 	  (if (y-or-n-p (format
+;; 					 "End of chapter. Go to scene in next chapter %s "
+;; 					 (progn (org-next-visible-heading 1)
+;; 							(org-entry-get nil "ITEM"))))
+;; 		  (progn
+;; 			(outline-show-branches)
+;; 			(setq heading-level (outline-level))			
+;; 			(org-next-visible-heading 1)
+;; 			(when (= heading-level
+;; 					 (outline-level))
+;; 			  (org-previous-visible-heading 1)
+;; 			  (setq new-heading (read-string "New heading: "))
+;; 			  (org-insert-heading-respect-content t)
+;; 			  (insert new-heading)
+;; 			  (org-metaright)))
+;; 			  ;; (error "There is no scene heading in the next chapter")))
+;; 		(goto-char old-location)))
+
+;; 	(org-narrow-to-subtree)
+;; 	(outline-show-children)
+;; 	(switch-to-buffer this-buffer)
+;; 	(kill-buffer indirect-buffer-name)))
+
+(defun write-help--update-argument (arg)
+  "Called by `write-forward-outline'. If argument is negative, adds one, otherwise subtracts one, and returns the result. Argument thus converges to zero."
+  (if (< 0 arg)
+	  (1- arg)
+	(1+ arg)))
+
+(defun write-help--move-to-heading (arg)
+  "Called by `write-forward-outline'. If argument possitive, calls `outline-next-heading', otherwise `outline-previous-heading'."
+  (if (< 0 arg)
+	  (outline-next-heading)
+	(outline-previous-heading)))
+
+(defun write-help--new-scene-in-place-maybe (expl position level arg new-scene insert-here &optional last-position)
+  "Called by `write-forward-outline'. If NEW-SCENE is nill, this function asks a y-or-no question with an explanation in EXPL. If the answer is \"yes\", it sets cursor to POSITION and returns. If the answer is \"no\", it creates a new scene in place, whether it is at the beginning of the file, the end of the file, or somewhere in the middle. If NEW-SCENE is t, inserts a new scene automatically.
+
+If cursor is at EOF, creates a new scene of level LEVEL just after it, or after the last visited scene (user is asked). If cursor is at BOF, the new heading will be on top of the file of level LEVEL, ar before the last visited scene (user is asked). The last visited scene is held in LAST-POSITION. If cursor is in the middle, this function assumes it is strategically placed:
+
+- If ARG is <0 (which mean we're moving through scenes backwards), cursor is at the beginning of the line which should have the new scene. Usually the previously first scene:
+
+	■** Blabla [level 3]
+		lorem ipsum...
+		|
+		|
+		v
+	*** New Blabla■
+	*** Blabla
+		lorem ipsum...
+
+- If ARG is >0 (we are moving forward through scenes), cursor is (anywhere) within the last heading/ content of heading:
+
+	*** Blabla■
+	    lorem ipsum...
+		|
+		|
+		v
+	*** Blabla
+		lorem ipsum...
+	*** New Blabla■
+
+In the last two examples, LEVEL is not used."
+  (let ((prompt (concat expl "Go back (no new scene)? "))
+		scene-name)
+	(if (if new-scene nil				; If new-scene is set, always insert
+		  (y-or-n-p prompt))
+		(goto-char position)				; We want to return to the
+										; original scene
+
+	  ;; We want to insert a new scene
+	  (when (and (or (= (point) (point-max))
+					 (= (point) (point-min)))
+				 (if insert-here nil		; If insert-here is t
+										; always insert here
+				   (y-or-n-p "Make new scene at last scene (not here)? ")))
+		(goto-char last-position)
+		(unless (org-at-heading-p)
+		  (outline-previous-heading)))
+	  (setq scene-name (read-string "New scene name: "))
+	  ;; Insert a newline IFF end of file AND NOT beginning of line,
+	  ;; because if end of file AND beginning of line, we are on the
+	  ;; last line of the file, which is empty, so we can insert there.
+	  (when (and (= (point) (point-max))
+				 (not (= (point) (point-at-bol))))
+		(newline))
+	  (if (or (= (point) (point-min))
+			  (cl-minusp arg)
+			  (= (point) (point-max)))
+		  (progn (dotimes (time level)
+				   (insert "*"))
+				 (insert (concat " " scene-name "\n"))
+				 (when (not (= (point) (point-max)))
+				   (insert "\n")
+				   (backward-char)))
+		(org-insert-heading-respect-content t)
+		(insert (concat scene-name "\n")))
+
+	  (when specific-string-insertion
+		(insert-specific-string t)))))
+
+(defun write-forward-outline (arg position level)
+  "Go forward ARG headings of the same level, and narrow on the last.
+
+POSITION denotes the position to come back to in case we hit a problem - no more headings to go to or heading of another level.
+
+LEVEL gives the current outline level. We only count headings of this level. If a heading of another level is reached, the user is asked if they wish to procede. If not, they return to POSITION. If yes, the function finds the next heading of LEVEL and counts on."
+  (interactive (list (prefix-numeric-value current-prefix-arg) (progn (beginning-of-buffer) (point)) (org-outline-level)))
+  ;; Check for wrong file/ not narrowed
+  (when (or (not (string= "org-mode" major-mode)))
 	(error "Not in MASTER ORG OUTLINE FILE"))
-  (let ((old-location (progn
-						(org-previous-visible-heading 1)
-						(point)))
-		(this-scene (buffer-substring (point-min)
-									  (point-max)))
-		(this-buffer (buffer-name))
-		(indirect-buffer-name "bla")
-		heading-level
-		new-heading)
-	(clone-indirect-buffer indirect-buffer-name nil t)
-	(set-buffer this-buffer)
-	(widen)
-	(when (= old-location
-			 (progn (org-forward-heading-same-level arg t)
-					(point)))
-	  (if (y-or-n-p (format
-					 "End of chapter. Go to scene in next chapter %s "
-					 (progn (org-next-visible-heading 1)
-							(org-entry-get nil "ITEM"))))
-		  (progn
-			(outline-show-branches)
-			(setq heading-level (outline-level))			
-			(org-next-visible-heading 1)
-			(when (= heading-level
-					 (outline-level))
-			  (org-previous-visible-heading 1)
-			  (setq new-heading (read-string "New heading: "))
-			  (org-insert-heading-respect-content t)
-			  (insert new-heading)
-			  (org-metaright)))
-			  ;; (error "There is no scene heading in the next chapter")))
-		(goto-char old-location)))
 
-	(org-narrow-to-subtree)
-	(outline-show-children)
-	(switch-to-buffer this-buffer)
-	(kill-buffer indirect-buffer-name)))
+  (widen)
+  (outline-show-branches)
+
+  (let ((same-chapter t)
+		(last-position position))
+	(while (not (= arg 0))
+	  (write-help--move-to-heading arg)
+	  (if (or (= (point) (point-max))	; Check if end or beginning of file
+			  (= (point) (point-min)))
+		  (progn
+			(write-help--new-scene-in-place-maybe "End of file. "position level arg write-always-insert-new-scene write-always-insert-new-scene last-position)
+			
+			(setq arg 0))				; Stop loop
+		
+		;; Not at end or beginning of file
+		(if (= (org-outline-level) level)
+			(progn
+			  (setq last-position (point))
+			  (setq same-chapter t)
+			  (setq arg (write-help--update-argument arg)))
+		  (when same-chapter
+			(unless (or write-always-skip-non-matching-headings
+						(y-or-n-p "We are changing chapters. Do you want to? "))
+			  (write-help--move-to-heading (- arg)) ; Position the cursor
+			  ;; Insert new scene
+			  (write-help--new-scene-in-place-maybe "" position level arg nil nil)
+			  (setq arg 0)))			; Stop loop
+		  (setq same-chapter nil))))
+
+	(outline-show-entry)
+	(org-narrow-to-subtree)))
 
 (defalias 'wf 'write-forward-outline)
 
